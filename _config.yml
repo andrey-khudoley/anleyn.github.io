@@ -1,1 +1,22 @@
-_config.yml
+title: khtech notes
+description: >- 
+  Заметки и полезные инструкции
+baseurl: ""
+url: "https://anleyn.github.io"
+
+# Тема и плагины
+remote_theme: pages-themes/modernist@v0.2.0
+plugins:
+  - jekyll-remote-theme
+
+# Настройки темы
+show_downloads: false
+
+# Настройки SEO
+title: khtech notes
+description: >- # Описание для SEO
+  Заметки и полезные инструкции от KhTech
+
+# Настройки построения
+permalink: /:year/:month/:day/:title/ # Формат постоянной ссылки для постов
+paginate: 5 # Количество постов на странице
