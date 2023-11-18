@@ -1,8 +1,8 @@
-title: khtech notes
+title: KhTech - Заметки
 description: >- 
-  Заметки и полезные инструкции
+  Рабочие заметки и инструкции
 baseurl: ""
-url: "https://anleyn.github.io"
+url: "https://notes.khudoley.pro/"
 
 # Тема и плагины
 remote_theme: pages-themes/modernist@v0.2.0
@@ -13,9 +13,9 @@ plugins:
 show_downloads: false
 
 # Настройки SEO
-title: khtech notes
+title: KhTech - Заметки
 description: >- # Описание для SEO
-  Заметки и полезные инструкции от KhTech
+  Рабочие заметки и инструкции
 
 # Настройки построения
 permalink: /:year/:month/:day/:title/ # Формат постоянной ссылки для постов
