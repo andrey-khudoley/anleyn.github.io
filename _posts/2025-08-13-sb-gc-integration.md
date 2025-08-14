@@ -76,6 +76,118 @@ tags: [gc, sb, api, chatium]
 
 Готово. Теперь GC отправляет email в SB и SB может работать с ним. Именно то. что мы хотели.
 
+## Создание интеграции из SB в GC
+
+Имея email мы можем обращаться к конкретному пользователю на GC, но GC пока не может обращаться к пользователю на SB в ответ, поскольку ещё не имеет никакой информации для этого.
+
+Чтобы сделать это возможным, нужно отправить в дополнительное поле пользователя ключ пользователя в Salebot. Мы будем для этого использовать telegram id, как нечто более универсальное. Проект может смениться и client_id тоже сменится. Но по ID Телеграма мы по прежнему сможем достучаться до пользователя. 
+
+Для того, чтобы передать данные - нам надо иметь URL, на который мы эти данные отправим. Эндпоинт. Мы создадим его, используя IDE платформы Chatium.
+
+```typescript
+// @ts-ignore
+import { getUserFields, updateUserFields, setUserCustomFields } from '@getcourse/sdk';
+import { Debug } from '../../../lib/debug.lib';
+
+// ---- Конфиг логирования ----
+const LOG_LEVEL = 'info' as const;
+const LOG_PREFIX = 'telegram_id_update';
+Debug.setLogPrefix(LOG_PREFIX);
+
+// ---- Типы входа/выхода ----
+interface RequestBody {
+  email: string;
+  telegram_id: string;
+}
+
+type JsonResult = { success: true } | { success: false; error: string };
+
+// ---- Вспомогательные типы ----
+interface UserCustomFieldMeta {
+  name: string;
+  value: unknown;
+  type: string;
+  units: string | null;
+}
+
+type UserCustomFieldsResult = Record<string, UserCustomFieldMeta>;
+
+interface GcUserInfo {
+  id: number;
+  custom: UserCustomFieldsResult;
+}
+
+// ---- Утилиты ----
+const norm = (v: unknown) => String(v ?? '').trim();
+const lower = (v: unknown) => norm(v).toLowerCase();
+
+// ---- Эндпоинт ----
+app.post('/', async (ctx, req): Promise<JsonResult> => {
+  try {
+    const { email, telegram_id } = (req?.body ?? {}) as Partial<RequestBody>;
+
+    if (!email || !telegram_id) {
+      new Debug(ctx, 'email и telegram_id обязательны', LOG_LEVEL, 'warn', 'BAD_REQUEST');
+      return { success: false, error: 'email и telegram_id обязательны' };
+    }
+
+    new Debug(ctx, `Старт обновления telegram_id для ${email}`, LOG_LEVEL, 'info');
+
+    // 1) Берём поля пользователя по email
+    const user = (await getUserFields(ctx, { email })) as GcUserInfo | null;
+    if (!user) {
+      new Debug(ctx, `Пользователь не найден по email=${email}`, LOG_LEVEL, 'warn', 'USER_NOT_FOUND');
+      return { success: false, error: 'user_not_found' };
+    }
+
+    // 2) Ищем ID доп.поля с именем "telegram_id"
+    const custom = user.custom ?? {};
+    const found = Object.entries(custom).find(([, meta]) => lower(meta?.name) === 'telegram_id');
+
+    if (!found) {
+      new Debug(ctx, `Доп. поле 'telegram_id' не найдено у user_id=${user.id}`, LOG_LEVEL, 'warn', 'FIELD_NOT_FOUND');
+      return { success: false, error: 'field_telegram_id_not_found' };
+    }
+
+    const [fieldId] = found;
+
+    // 3) Обновляем значение поля
+    await setUserCustomFields(ctx, {
+      email,
+      fields: { [fieldId]: String(telegram_id) },
+    });
+
+    new Debug(ctx, `Обновлено: user_id=${user.id}, field_id=${fieldId}`, LOG_LEVEL, 'info');
+    return { success: true };
+  } catch (e) {
+    new Debug(ctx, e instanceof Error ? e.message : String(e), LOG_LEVEL, 'error', 'INTERNAL_ERROR');
+    return { success: false, error: 'internal_error' };
+  }
+});
+```
+
+Этот код регистрирует эндпоинт, который ожидает входящий POST-запрос. В теле пост-запроса ожидаются два ключа: 
+ * email - определяет пользователя, для которого мы запишем данные;
+ * telegram_id - сам id, который мы собираемся записать в поле на GC.
+
+ Итоговый запрос будет выглядеть следующим образом:
+ * URL: https://domain/path/update_telegram_id (путь к tsx-файлу, в котором размещён наш код)
+ * Body:
+ ```typescript
+ {
+    "email": "email@domain.mail",
+    "telegram_id": "12345678"
+ }
+ ```
+
+Остаётся направить эти данные прямо из Salebot сразу, как только email появился у пользователя.
+
+
+
+
+
+
+
 
 
 
