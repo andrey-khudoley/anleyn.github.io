@@ -80,13 +80,15 @@ tags: [gc, sb, api, chatium]
 
 Имея email мы можем обращаться к конкретному пользователю на GC, но GC пока не может обращаться к пользователю на SB в ответ, поскольку ещё не имеет никакой информации для этого.
 
-Чтобы сделать это возможным, нужно отправить в дополнительное поле пользователя ключ пользователя в Salebot. Мы будем для этого использовать telegram id, как нечто более универсальное. Проект может смениться и client_id тоже сменится. Но по ID Телеграма мы по прежнему сможем достучаться до пользователя. 
+Чтобы сделать это возможным, нужно отправить в дополнительное поле пользователя ключ пользователя в Salebot. Мы будем для этого использовать telegram id, как нечто более универсальное. Проект может смениться и client_id тоже сменится. Но по ID Телеграма мы по прежнему сможем достучаться до пользователя.
+
+Тем не менее, не будучи ограниченными передачей лишь одного поля, мы можем также передать и client_id, чтобы иметь возможность удобного перехода к диалогу в Salebot для сотрудников.
 
 Для того, чтобы передать данные - нам надо иметь URL, на который мы эти данные отправим. Эндпоинт. Мы создадим его, используя IDE платформы Chatium.
 
 ```typescript
 // @ts-ignore
-import { getUserFields, updateUserFields, setUserCustomFields } from '@getcourse/sdk';
+import { getUserFields, setUserCustomFields } from '@getcourse/sdk';
 import { Debug } from '../../../lib/debug.lib';
 
 // ---- Конфиг логирования ----
@@ -98,6 +100,7 @@ Debug.setLogPrefix(LOG_PREFIX);
 interface RequestBody {
   email: string;
   telegram_id: string;
+  sb_id: string;
 }
 
 type JsonResult = { success: true } | { success: false; error: string };
@@ -124,14 +127,14 @@ const lower = (v: unknown) => norm(v).toLowerCase();
 // ---- Эндпоинт ----
 app.post('/', async (ctx, req): Promise<JsonResult> => {
   try {
-    const { email, telegram_id } = (req?.body ?? {}) as Partial<RequestBody>;
+    const { email, telegram_id, sb_id } = (req?.body ?? {}) as Partial<RequestBody>;
 
-    if (!email || !telegram_id) {
-      new Debug(ctx, 'email и telegram_id обязательны', LOG_LEVEL, 'warn', 'BAD_REQUEST');
-      return { success: false, error: 'email и telegram_id обязательны' };
+    if (!email || !telegram_id || !sb_id) {
+      new Debug(ctx, 'email, telegram_id и sb_id обязательны', LOG_LEVEL, 'warn', 'BAD_REQUEST');
+      return { success: false, error: 'email, telegram_id и sb_id обязательны' };
     }
 
-    new Debug(ctx, `Старт обновления telegram_id для ${email}`, LOG_LEVEL, 'info');
+    new Debug(ctx, `Старт обновления telegram_id и sb_id для ${email}`, LOG_LEVEL, 'info');
 
     // 1) Берём поля пользователя по email
     const user = (await getUserFields(ctx, { email })) as GcUserInfo | null;
@@ -142,22 +145,32 @@ app.post('/', async (ctx, req): Promise<JsonResult> => {
 
     // 2) Ищем ID доп.поля с именем "telegram_id"
     const custom = user.custom ?? {};
-    const found = Object.entries(custom).find(([, meta]) => lower(meta?.name) === 'telegram_id');
+    const foundTelegram = Object.entries(custom).find(([, meta]) => lower(meta?.name) === 'telegram_id');
+    const foundSbId = Object.entries(custom).find(([, meta]) => lower(meta?.name) === 'sb_294495_id');
 
-    if (!found) {
+    if (!foundTelegram) {
       new Debug(ctx, `Доп. поле 'telegram_id' не найдено у user_id=${user.id}`, LOG_LEVEL, 'warn', 'FIELD_NOT_FOUND');
       return { success: false, error: 'field_telegram_id_not_found' };
     }
 
-    const [fieldId] = found;
+    if (!foundSbId) {
+      new Debug(ctx, `Доп. поле 'sb_294495_id' не найдено у user_id=${user.id}`, LOG_LEVEL, 'warn', 'FIELD_NOT_FOUND');
+      return { success: false, error: 'field_sb_294495_id_not_found' };
+    }
 
-    // 3) Обновляем значение поля
+    const [telegramFieldId] = foundTelegram;
+    const [sbFieldId] = foundSbId;
+
+    // 3) Обновляем значения полей
     await setUserCustomFields(ctx, {
       email,
-      fields: { [fieldId]: String(telegram_id) },
+      fields: { 
+        [telegramFieldId]: String(telegram_id),
+        [sbFieldId]: String(sb_id)
+      },
     });
 
-    new Debug(ctx, `Обновлено: user_id=${user.id}, field_id=${fieldId}`, LOG_LEVEL, 'info');
+    new Debug(ctx, `Обновлено: user_id=${user.id}, telegram_field_id=${telegramFieldId}, sb_field_id=${sbFieldId}`, LOG_LEVEL, 'info');
     return { success: true };
   } catch (e) {
     new Debug(ctx, e instanceof Error ? e.message : String(e), LOG_LEVEL, 'error', 'INTERNAL_ERROR');
@@ -166,9 +179,12 @@ app.post('/', async (ctx, req): Promise<JsonResult> => {
 });
 ```
 
+В этом коде я использую библиотеку для удобного логирования, о которой рассказано в отдельной статье. Прочитать о библиотеке можно [в этой статье](https://example.com/).
+
 Этот код регистрирует эндпоинт, который ожидает входящий POST-запрос. В теле пост-запроса ожидаются два ключа: 
  * email - определяет пользователя, для которого мы запишем данные;
- * telegram_id - сам id, который мы собираемся записать в поле на GC.
+ * telegram_id - сам id, который мы собираемся записать в поле на GC;
+ * sb_id - идентификатор клиента в сэйлботе.
 
  Итоговый запрос будет выглядеть следующим образом:
  * URL: https://domain/path/update_telegram_id (путь к tsx-файлу, в котором размещён наш код)
@@ -176,145 +192,17 @@ app.post('/', async (ctx, req): Promise<JsonResult> => {
  ```typescript
  {
     "email": "email@domain.mail",
-    "telegram_id": "12345678"
+    "telegram_id": "11111111"
+    "sb_id": "22222222"
  }
  ```
 
 Остаётся направить эти данные прямо из Salebot сразу, как только email появился у пользователя.
 
+Для этого вносим правки в блок, созданный выше.
 
+![Update_SB_node](https://files.khudoley.pro/static/img/2025-08-15_020545.png)
 
+# Результат
 
-
-
-
-
-
-
-
-
-
-
-====================================
-Пост содержит большинство элементов разметки markdown
-
-
-Text can be **bold**, _italic_, or ~~strikethrough~~.
-
-[Link to another page](./another-page.html).
-
-There should be whitespace between paragraphs.
-
-There should be whitespace between paragraphs. We recommend including a README, or a file with information about your project.
-
-# Header 1
-
-This is a normal paragraph following a header. GitHub is a code hosting platform for version control and collaboration. It lets you and others work together on projects from anywhere.
-
-## Header 2
-
-> This is a blockquote following a header.
->
-> When something is important enough, you do it even if the odds are not in your favor.
-
-### Header 3
-
-```js
-// Javascript code with syntax highlighting.
-var fun = function lang(l) {
-  dateformat.i18n = require('./lang/' + l)
-  return true;
-}
-```
-
-```ruby
-# Ruby code with syntax highlighting
-GitHubPages::Dependencies.gems.each do |gem, version|
-  s.add_dependency(gem, "= #{version}")
-end
-```
-
-#### Header 4
-
-*   This is an unordered list following a header.
-*   This is an unordered list following a header.
-*   This is an unordered list following a header.
-
-##### Header 5
-
-1.  This is an ordered list following a header.
-2.  This is an ordered list following a header.
-3.  This is an ordered list following a header.
-
-###### Header 6
-
-| head1        | head two          | three |
-|:-------------|:------------------|:------|
-| ok           | good swedish fish | nice  |
-| out of stock | good and plenty   | nice  |
-| ok           | good `oreos`      | hmm   |
-| ok           | good `zoute` drop | yumm  |
-
-### There's a horizontal rule below this.
-
-* * *
-
-### Here is an unordered list:
-
-*   Item foo
-*   Item bar
-*   Item baz
-*   Item zip
-
-### And an ordered list:
-
-1.  Item one
-1.  Item two
-1.  Item three
-1.  Item four
-
-### And a nested list:
-
-- level 1 item
-  - level 2 item
-  - level 2 item
-    - level 3 item
-    - level 3 item
-- level 1 item
-  - level 2 item
-  - level 2 item
-  - level 2 item
-- level 1 item
-  - level 2 item
-  - level 2 item
-- level 1 item
-
-### Small image
-
-![Octocat](https://github.githubassets.com/images/icons/emoji/octocat.png)
-
-### Large image
-
-![Branching](https://zamanilka.ru/wp-content/uploads/2019/03/5120x2880-UHD.jpg)
-
-
-### Definition lists can be used with HTML syntax.
-
-<dl>
-<dt>Name</dt>
-<dd>Godzilla</dd>
-<dt>Born</dt>
-<dd>1952</dd>
-<dt>Birthplace</dt>
-<dd>Japan</dd>
-<dt>Color</dt>
-<dd>Green</dd>
-</dl>
-
-```
-Long, single-line code blocks should not wrap. They should horizontally scroll if they are too long. This line should be long enough to demonstrate this.
-```
-
-```
-The final element.
-```
+В итоге мы связали два сервиса между собой, не прибегая к промежуточным сервисам. Теперь при наступлении любого события в Геткурсе мы можем отправлять уведомление в Salebot, при обращении в чате фиксировать информацию об этом в GC и вести сквозную аналитику между этими двумя сервисами.
